@@ -22,7 +22,7 @@ struct VSInput {
 	#endif
 	
 	#ifdef INDICES_ATTR
-		int4 indices : ATTR(INDICES_ATTR);
+		uint4 indices : ATTR(INDICES_ATTR);
 		float4 weights : ATTR(WEIGHTS_ATTR);
 	#endif
 	
