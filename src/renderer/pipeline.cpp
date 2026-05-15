@@ -1639,7 +1639,7 @@ struct PipelineImpl final : Pipeline {
 		for (RenderPlugin* plugin : m_renderer.getPlugins()) {
 			result = plugin->renderBeforeTonemap(gbuffer, result, *this);
 		}
-		renderDebugShapes();
+		renderDebugShapes(result, gbuffer.DS);
 		if (!is_debug_output) {
 			result = tonemap(gbuffer, result);
 		}
@@ -1911,7 +1911,10 @@ struct PipelineImpl final : Pipeline {
 		});
 	}
 
-	void renderDebugShapes() {
+	void renderDebugShapes(RenderBufferHandle output, RenderBufferHandle depth) {
+		if (m_debug_shape_shader->isReady() && (!m_module->getDebugTriangles().empty() || !m_module->getDebugLines().empty())) {
+			m_renderer.setRenderTargets(Span(&output, 1), depth);
+		}
 		renderDebugTriangles();
 		renderDebugLines();
 		//renderDebugPoints();
