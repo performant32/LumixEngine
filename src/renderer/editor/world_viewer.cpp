@@ -127,7 +127,7 @@ void WorldViewer::resetCamera(const Model& model) {
 	Matrix mtx;
 	ASSERT(model.getCenterBoundingRadius() > 0);
 	Vec3 eye = center + Vec3(model.getCenterBoundingRadius() * 2);
-	mtx.lookAt(eye, center, normalize(Vec3(1, -1, 1)));
+	mtx.lookAt(eye, center, Vec3(0, 1, 0));
 	mtx = mtx.inverted();
 	m_viewport.rot = mtx.getRotation();
 	m_camera_speed = 1;
@@ -152,10 +152,10 @@ void WorldViewer::gui() {
 	gpu::TextureHandle preview = m_pipeline->getOutput();
 	const ImVec2 view_pos = ImGui::GetCursorScreenPos();
 	if (gpu::isOriginBottomLeft()) {
-		ImGui::Image(preview, image_size);
+		ImGui::Image(preview, image_size, ImVec2(0, 1), ImVec2(1, 0));
 	}
 	else {
-		ImGui::Image(preview, image_size, ImVec2(0, 1), ImVec2(1, 0));
+		ImGui::Image(preview, image_size);
 	}
 	
 	if (m_is_mouse_captured) {
@@ -179,7 +179,7 @@ void WorldViewer::gui() {
 		Vec2 delta(0, 0);
 		for (const os::Event e : m_app.getEvents()) {
 			if (e.type == os::Event::Type::MOUSE_MOVE) {
-				delta += Vec2((float)e.mouse_move.xrel, (float)e.mouse_move.yrel);
+				delta += -Vec2((float)e.mouse_move.xrel, (float)e.mouse_move.yrel);
 			}
 		}
 

@@ -868,6 +868,7 @@ bool ModelImporter::writePrefab(const Path& src, const ModelMeta& meta) {
 			Vec3 pos;
 			Quat rot;
 			Vec3 scale;
+			// TODO left-handed matrices
 			m_meshes[i].matrix.decompose(pos, rot, scale);
 			const EntityRef e = world.createEntity(DVec3(pos), rot);
 			world.setScale(e, scale);
@@ -1011,17 +1012,13 @@ void ModelImporter::writeGeometry(const ModelMeta& meta) {
 				}
 			}
 			else {
-				Vec3 scale;
-				Vec3 pos;
-				Quat rot;
-				mtx.decompose(pos, rot, scale);
-				ASSERT(fabsf(rot.x * rot.x + rot.y * rot.y + rot.z * rot.z + rot.w * rot.w - 1) < 0.0001f);
-
 				auto transform_vector = [&](u32 offset){
 					u32 packed_vec;
 					memcpy(&packed_vec, out + offset, sizeof(packed_vec));
 					Vec3 vec = unpackF4u(packed_vec);
-					vec = rot.rotate(vec);
+					float len = length(vec);
+					vec = mtx.transformVector(vec);
+					vec = normalize(vec) * len;
 					packed_vec = packF4u(vec);
 					memcpy(out + offset, &packed_vec, sizeof(packed_vec));
 				};

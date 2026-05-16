@@ -82,14 +82,6 @@ struct FBXImporter : ModelImporter {
 		i32 tangent_offset = -1;
 	};
 
-	enum class Orientation {
-		Y_UP,
-		Z_UP,
-		Z_MINUS_UP,
-		X_MINUS_UP,
-		X_UP
-	};
-
 	FBXImporter(StudioApp& app, IAllocator& allocator)
 		: ModelImporter(app)
 		, m_allocator(allocator)
@@ -144,13 +136,6 @@ struct FBXImporter : ModelImporter {
 		un.arr[3] = ww;
 
 		return un.ui32;
-	}
-
-	static bool doesFlipHandness(const Matrix& mtx) {
-		Vec3 x(1, 0, 0);
-		Vec3 y(0, 1, 0);
-		Vec3 z = mtx.inverted().transformVector(cross(mtx.transformVector(x), mtx.transformVector(y)));
-		return z.z < 0;
 	}
 
 	static bool hasTangents(const ofbx::GeometryData& geom) {
@@ -465,25 +450,6 @@ struct FBXImporter : ModelImporter {
 				import_geom.index_size = areIndices16Bit(import_geom) ? 2 : 4;
 				
 				if (import_geom.flip_handness) {
-					const u32 num_vertices = u32(import_geom.vertex_buffer.size() / import_geom.vertex_size);
-					u8* data = import_geom.vertex_buffer.getMutableData();
-					auto transform_vec = [&](u32 offset){
-						u32 packed;
-						memcpy(&packed, data + offset, sizeof(packed));
-						Vec3 v = unpackF4u(packed);
-						v.x *= -1;
-						packed = packF4u(v);
-						memcpy(data + offset, &packed, sizeof(packed));
-					};
-					for (u32 i = 0; i < num_vertices; ++i) {
-						Vec3 p;
-						memcpy(&p, data + i * import_geom.vertex_size, sizeof(p));
-						p.x *= -1;
-						memcpy(data + i * import_geom.vertex_size, &p, sizeof(p));
-						transform_vec(i * import_geom.vertex_size + vertex_layout.normal_offset);
-						transform_vec(i * import_geom.vertex_size + vertex_layout.tangent_offset);
-					}
-
 					for (i32 i = 0, n = import_geom.indices.size(); i < n; i += 3) {
 						swap(import_geom.indices[i], import_geom.indices[i + 1]);
 					}
@@ -575,49 +541,18 @@ struct FBXImporter : ModelImporter {
 	}
 	
 	LUMIX_FORCE_INLINE Quat fixOrientation(const Quat& v) const {
-		switch (m_orientation) {
-			case Orientation::Y_UP: return v;
-			case Orientation::Z_UP: return Quat(v.x, v.z, -v.y, v.w);
-			case Orientation::Z_MINUS_UP: return Quat(v.x, -v.z, v.y, v.w);
-			case Orientation::X_MINUS_UP: return Quat(v.y, -v.x, v.z, v.w);
-			case Orientation::X_UP: return Quat(-v.y, v.x, v.z, v.w);
-		}
-		ASSERT(false);
-		return Quat(v.x, v.y, v.z, v.w);
+		Vec3 t = {v.x, v.y, v.z};
+		t = m_fbx_to_lumix.transformVector(t);
+		if (m_fbx_to_lumix.determinant() < 0) t = -t;
+		return normalize(Quat(t.x, t.y, t.z, v.w));
 	}
 
 	LUMIX_FORCE_INLINE Vec3 fixOrientation(const Vec3& v) const {
-		switch (m_orientation) {
-			case Orientation::Y_UP: return v;
-			case Orientation::Z_UP: return Vec3(v.x, v.z, -v.y);
-			case Orientation::Z_MINUS_UP: return Vec3(v.x, -v.z, v.y);
-			case Orientation::X_MINUS_UP: return Vec3(v.y, -v.x, v.z);
-			case Orientation::X_UP: return Vec3(-v.y, v.x, v.z);
-		}
-		ASSERT(false);
-		return v;
+		return m_fbx_to_lumix.transformVector(v);
 	}
 
 	LUMIX_FORCE_INLINE Matrix fixOrientation(const Matrix& m) const {
-		switch (m_orientation) {
-			case Orientation::Y_UP: return m;
-			case Orientation::Z_UP:{
-				Matrix mtx = Matrix(
-					Vec4(1, 0, 0, 0),
-					Vec4(0, 0, -1, 0),
-					Vec4(0, 1, 0, 0),
-					Vec4(0, 0, 0, 1)
-				);
-				return mtx * m;
-			}
-			case Orientation::Z_MINUS_UP:
-			case Orientation::X_MINUS_UP:
-			case Orientation::X_UP:
-				ASSERT(false); // TODO
-				break;
-		}
-		ASSERT(false);
-		return m;
+		return m_fbx_to_lumix * m;
 	}
 
 	LUMIX_FORCE_INLINE u32 getPackedVec3(ofbx::Vec3 vec) const {
@@ -1064,12 +999,10 @@ struct FBXImporter : ModelImporter {
 			for (Key& k : keys) k.pos *= scale;
 		}
 
-		if (m_orientation != Orientation::Y_UP) {
-			for (Array<Key>& track : tracks) {
-				for (Key& key : track) {
-					key.pos = fixOrientation(key.pos);
-					key.rot = fixOrientation(key.rot);
-				}
+		for (Array<Key>& track : tracks) {
+			for (Key& key : track) {
+				key.pos = fixOrientation(key.pos);
+				key.rot = fixOrientation(key.rot);
 			}
 		}
 	}
@@ -1228,7 +1161,7 @@ struct FBXImporter : ModelImporter {
 				transform_matrix.multiply3x3(m_scene_scale);
 				transform_matrix.setTranslation(transform_matrix.getTranslation() * m_scene_scale);
 				mesh.matrix = fixOrientation(transform_matrix);
-				const bool flip_handness = doesFlipHandness(mesh.matrix);
+				const bool flip_handness = mesh.matrix.determinant() < 0;
 
 				if (is_skinned) {
 					ImportGeometry& import_geom = m_geometries.emplace(m_allocator);
@@ -1270,10 +1203,6 @@ struct FBXImporter : ModelImporter {
 				getImportMeshName(mesh, fbx_mesh, names, mat_count > 1 ? fbx_mat_index : -1);
 				m_geometries[mesh.geometry_idx].name = mesh.name; // TODO name from ofbx::Geometry
 				mesh.lod = detectMeshLOD(mesh.name);
-
-				if (doesFlipHandness(mesh.matrix)) {
-					mesh.matrix.setXVector(mesh.matrix.getXVector() * -1);
-				}
 			}
 		}
 
@@ -1456,10 +1385,47 @@ struct FBXImporter : ModelImporter {
 		if (meta) m_scene_scale *= meta->scene_scale;
 
 		const ofbx::GlobalSettings* settings = m_scene->getGlobalSettings();
-		switch (settings->UpAxis) {
-			case ofbx::UpVector_AxisX: m_orientation = Orientation::X_UP; break;
-			case ofbx::UpVector_AxisY: m_orientation = Orientation::Y_UP; break;
-			case ofbx::UpVector_AxisZ: m_orientation = Orientation::Z_UP; break;
+		auto get_axis_index = [](ofbx::CoordinateAxis axis) -> i32 {
+			switch (axis) {
+				case ofbx::CoordinateAxis::POSITIVE_X:
+				case ofbx::CoordinateAxis::NEGATIVE_X: return 0;
+				case ofbx::CoordinateAxis::POSITIVE_Y:
+				case ofbx::CoordinateAxis::NEGATIVE_Y: return 1;
+				case ofbx::CoordinateAxis::POSITIVE_Z:
+				case ofbx::CoordinateAxis::NEGATIVE_Z: return 2;
+				case ofbx::CoordinateAxis::UNKNOWN: return -1;
+			}
+			ASSERT(false);
+			return -1;
+		};
+		auto valid_orientation = [&]() {
+			const i32 coord = get_axis_index(settings->CoordAxis);
+			const i32 up = get_axis_index(settings->UpAxis);
+			const i32 front = get_axis_index(settings->FrontAxis);
+			return coord >= 0 && up >= 0 && front >= 0 && coord != up && coord != front && up != front;
+		};
+		auto set_orientation_axis = [&](ofbx::CoordinateAxis axis, Vec3 target) {
+			switch (axis) {
+				case ofbx::CoordinateAxis::POSITIVE_X: m_fbx_to_lumix.setXVector(target); break;
+				case ofbx::CoordinateAxis::NEGATIVE_X: m_fbx_to_lumix.setXVector(-target); break;
+				case ofbx::CoordinateAxis::POSITIVE_Y: m_fbx_to_lumix.setYVector(target); break;
+				case ofbx::CoordinateAxis::NEGATIVE_Y: m_fbx_to_lumix.setYVector(-target); break;
+				case ofbx::CoordinateAxis::POSITIVE_Z: m_fbx_to_lumix.setZVector(target); break;
+				case ofbx::CoordinateAxis::NEGATIVE_Z: m_fbx_to_lumix.setZVector(-target); break;
+				case ofbx::CoordinateAxis::UNKNOWN: break;
+			}
+		};
+		m_fbx_to_lumix = Matrix::IDENTITY;
+		if (valid_orientation()) {
+			set_orientation_axis(settings->CoordAxis, Vec3(1, 0, 0));
+			set_orientation_axis(settings->UpAxis, Vec3(0, 1, 0));
+			set_orientation_axis(settings->FrontAxis, Vec3(0, 0, 1));
+		}
+		else {
+			logWarning(filename, ": invalid FBX coordinate axes, falling back to identity");
+			set_orientation_axis(ofbx::CoordinateAxis::POSITIVE_X, Vec3(1, 0, 0));
+			set_orientation_axis(ofbx::CoordinateAxis::POSITIVE_Y, Vec3(0, 1, 0));
+			set_orientation_axis(ofbx::CoordinateAxis::POSITIVE_Z, Vec3(0, 0, 1));
 		}
 
 		StringView src_dir = Path::getDir(filename);
@@ -1489,7 +1455,7 @@ struct FBXImporter : ModelImporter {
 	IAllocator& m_allocator;
 	Array<const ofbx::Mesh*> m_fbx_meshes;
 	ofbx::IScene* m_scene;
-	Orientation m_orientation = Orientation::Y_UP;
+	Matrix m_fbx_to_lumix = Matrix::IDENTITY;
 	float m_scene_scale = 1.f;
 };
 
