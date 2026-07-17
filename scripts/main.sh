@@ -179,10 +179,10 @@ push_to_itch_io()
 	rm -rf itch_io
 	mkdir itch_io
 	$SCRIPT_DIR/genie gmake
-	cd tmp/gmake 
+	cd $SCRIPT_DIR/tmp/gmake 
 	make -j config=relwithdebinfo64
 	cd ../..
-	cp tmp/gmake/bin/RelWithDebInfo/studio itch_io/studio
+	cp $SCRIPT_DIR/tmp/gmake/bin/RelWithDebInfo/studio itch_io/studio
 	chmod +x itch_io/studio
 	cp -r ../data/* itch_io/
 	cp .itch.toml itch_io/
@@ -199,7 +199,7 @@ push_to_itch_io()
 
 build()
 {
-	cd tmp/gmake
+	cd $SCRIPT_DIR/tmp/gmake
 	make -j config=$1
 	cd ../..
 }
@@ -221,7 +221,7 @@ main_menu()
 	select opt in "${options[@]}"
 	do
 		case "$REPLY" in
-			1 ) ./genie gmake; pause; break;;
+			1 ) $SCRIPT_DIR/genie gmake; pause; break;;
 			2 ) build relwithdebinfo64; pause; break;;
 			3 ) build debug64; pause; break;;
 			4 ) thirdparty_menu; break;;
