@@ -21,3 +21,5 @@ src/engine/plugins.inl
 scripts/itch_io/
 !data/editor/scripts/plugins/
 *.dmp
+
+scripts/genie
